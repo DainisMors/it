@@ -9,7 +9,7 @@
 
 if ( ! defined( 'POPULARFX_VERSION' ) ) {
 	// Replace the version number of the theme on each release.
-	define( 'POPULARFX_VERSION', '1.2.7' );
+	define( 'POPULARFX_VERSION', '1.2.8' );
 }
 
 if ( ! defined( 'POPULARFX_PAGELAYER_API' ) ) {
