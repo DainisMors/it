@@ -222,8 +222,8 @@ function popularfx_promos(){
 			'interval' => 30,// In days
 			'pro_url' => POPULARFX_PRO_URL,
 			'rating' => 'https://wordpress.org/themes/popularfx/#reviews',
-			'twitter' => 'https://twitter.com/PopularFXthemes?status='.rawurlencode('I love #PopularFX Theme by @pagelayer team for my #WordPress site - '.esc_url(home_url())),
-			'facebook' => 'https://facebook.com/popularfx',
+			'twitter' => '', // Social media link removed
+			'facebook' => '', // Social media link removed
 			'website' => POPULARFX_WWW_URL,
 			'image' => POPULARFX_URL.'/images/popularfx-logo.png',
 			'name' => 'popularfx_show_promo'
@@ -238,8 +238,8 @@ function popularfx_promos(){
 				'interval' => 30,// In days
 				'pro_url' => POPULARFX_PRO_URL,
 				'rating' => 'https://wordpress.org/themes/popularfx/#reviews',
-				'twitter' => 'https://twitter.com/PopularFXthemes?status='.rawurlencode('I love #PopularFX Theme by @pagelayer team for my #WordPress site - '.esc_url(home_url())),
-				'facebook' => 'https://facebook.com/popularfx',
+				'twitter' => '', // Social media link removed
+				'facebook' => '', // Social media link removed
 				'website' => POPULARFX_WWW_URL,
 				'image' => POPULARFX_URL.'/images/popularfx-logo.png',
 				'name' => 'popularfx_templates_promo'

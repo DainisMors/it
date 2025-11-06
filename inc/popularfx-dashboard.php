@@ -19,8 +19,6 @@ function popularfx_page_header($title = 'PopularFX Theme'){
 		<tr>
 			<td valign="top"><h1>'.$title.'</h1></td>
 			'.($promos ? '<td align="right"><a target="_blank" class="button button-primary" href="'.esc_url('https://wordpress.org/support/view/plugin-reviews/pagelayer').'">'.__('Review Pagelayer', 'popularfx').'</a></td>' : '').'
-			<td align="right" width="40"><a target="_blank" href="'.esc_url('https://twitter.com/PopularFXthemes').'"><img src="'.esc_url(POPULARFX_URL.'/images/twitter.png').'" /></a></td>
-			<td align="right" width="40"><a target="_blank" href="'.esc_url('https://facebook.com/PopularFX').'"><img src="'.esc_url(POPULARFX_URL.'/images/facebook.png').'" /></a></td>
 		</tr>
 	</table>
 	<hr />
@@ -120,16 +118,9 @@ function popularfx_page_footer(){
 	<br />';
 	
 	if(empty($GLOBALS['sitepad'])){
-	
-		echo '<div style="width:45%;background:#FFF;padding:15px; margin:auto">
-		<b>'.__('Let your followers know that you use PopularFX to build your website', 'popularfx').' :</b>
-		<form method="get" action="https://twitter.com/intent/tweet" id="tweet" onsubmit="return dotweet(this);">
-			<textarea name="text" cols="45" row="3" style="resize:none;">'.__('I easily built my #WordPress #site using @PopularFXthemes', 'popularfx').'</textarea>
-			&nbsp; &nbsp; <input type="submit" value="Tweet!" class="button button-primary" onsubmit="return false;" id="twitter-btn" style="margin-top:20px;"/>
-		</form>
-		
-	</div>
-	<br />';
+
+		// Twitter form removed
+		echo '<br />';
 
 	wp_register_script( 'pfx_common', get_stylesheet_directory_uri() .'/js/common.js', array(), POPULARFX_VERSION, true );
 	
@@ -242,8 +233,8 @@ function popularfx_dashboard_T(){
 		'interval' => 30,// In days
 		'pro_url' => POPULARFX_PRO_URL,
 		'rating' => 'https://wordpress.org/themes/popularfx/#reviews',
-		'twitter' => 'https://twitter.com/PopularFXthemes?status='.rawurlencode('I love #PopularFX Theme by @pagelayer team for my #WordPress site - '.esc_url(home_url())),
-		'facebook' => 'https://facebook.com/popularfx',
+		'twitter' => '', // Social media link removed
+		'facebook' => '', // Social media link removed
 		'website' => POPULARFX_WWW_URL,
 		'image' => POPULARFX_URL.'/images/popularfx-logo.png',
 		'name' => 'popularfx_templates_promo',
