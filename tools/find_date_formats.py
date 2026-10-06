@@ -1,35 +1,36 @@
 #!/usr/bin/env python3
 """
-Meklē PowerBuilder (2025 R2) eksportēto avotu failos vietas, kur ir ierakstīts / apstrādāts datuma ievades vai
-attēlošanas formāts. Palīdz saplānot pāreju uz ASV formātu (mm/dd/yyyy).
+Sucht in exportierten PowerBuilder-Quelldateien (2025 R2) alle Stellen, an denen ein Datumsformat für Eingabe oder
+Anzeige festgelegt oder verarbeitet wird. Hilfe für die Umstellung auf das US-Format (mm/dd/yyyy).
 
-Lietošana:
-    python find_date_formats.py [--root .] [--out date_formats.csv] [--ext .srw,.sru,...] [--quiet]
+Aufruf:
+    python find_date_formats.py [--root .] [--out date_formats.csv] [--ext .srw,.sru,...] [--quiet] [--loose]
 
-Izvade: <out> (detalizēts saraksts), <out>_summary.csv (atrastās formāta maskas ar skaitu),
-        <out>_dwcolumns.csv (DataWindow date/datetime/timestamp kolonnas un retrieval argumenti ar to formātu,
-        rediģēšanas stilu un masku), kopsavilkums konsolē.
+Ausgabe: <out> (Detailliste), <out>_summary.csv (gefundene Formatmasken mit Anzahl),
+         <out>_dwcolumns.csv (DataWindow-Spalten vom Typ date/datetime/timestamp und Retrieval-Argumente mit
+         Format, Edit-Stil und Maske), Zusammenfassung in der Konsole.
 
-kind (kas atrasts):
-    DW_FORMAT     DataWindow kolonnas/lauka format="..."          (.srd)
-    DW_MASK       DataWindow editmask mask="..."                  (.srd)
-    DW_EXPR       datuma maska DataWindow izteiksmē, piem. String(col,'dd.mm.yyyy')
-    MODIFY_FMT    Modify()/Describe() ar formātu
-    MASK_PROP     .Mask / .Format / .EditMask / MaskDataType iestatīšana
-    STRING_FMT    String(datums,'dd.mm.yyyy')
-    LITERAL_MASK  cita virkne ar datuma masku
-    REGIONAL      [shortdate]/[longdate]/[general] - seko Windows reģionālajiem iestatījumiem (parasti nav jāmaina)
-    MASK_CTRL     DateMask!/DateTimeMask!/DatePicker/DDCalendar vadīklas (pārbaudīt, kā ievades vadīklas uzvedas)
-    DATE_PARSE    Date()/DateTime()/IsDate()/RelativeDate() - teksta pārvēršana datumā (atkarīga no reģ. iestatījumiem)
-    POS_PARSE     datuma teksta sadalīšana pēc pozīcijām: Mid(s,4,2), Left(s,2), Right(s,4) ...
-    DATE_LITERAL  datums kā teksta konstante: '31.12.2025', '2025-12-31'
-    DB_FMT        datubāzes formāts: to_char/convert/date_format/date_order/dateformat/...
-    IO_DATE       ImportFile/ImportString/SaveAs/ExportString... (tikai ar --loose, citādi pārāk daudz trokšņa)
-    ENV           reģionālo iestatījumu nolasīšana: Control Panel\\International, GetLocaleInfo, SetThreadLocale
-                  (ar --loose arī visi GetEnvironment/RegistryGet)
-Kolonna order: DMY / MDY / YMD / YM / MY / DM / MD  (maskas secība);  action: ko ar to darīt.
-Kolonna input_event = yes, ja atradums ir ItemChanged/EditChanged/Modified/LosingFocus/ItemError notikumā
-(tur visticamāk atrodas ievades parsēšanas loģika).
+Art (was gefunden wurde):
+    DW_FORMAT     DataWindow: format="..." einer Spalte/eines Feldes                (.srd)
+    DW_MASK       DataWindow: editmask mask="..."                                  (.srd)
+    DW_EXPR       Datumsmaske in einem DataWindow-Ausdruck, z.B. String(col,'dd.mm.yyyy')
+    MODIFY_FMT    Modify()/Describe() mit Format
+    MASK_PROP     Setzen von .Mask / .Format / .EditMask / MaskDataType
+    STRING_FMT    String(datum,'dd.mm.yyyy')
+    LITERAL_MASK  sonstige Zeichenkette mit Datumsmaske
+    REGIONAL      [shortdate]/[longdate] - folgt den Windows-Regionaleinstellungen (muss meist nicht geändert werden)
+    MASK_CTRL     DateMask!/DateTimeMask!/DatePicker/DDCalendar-Steuerelemente
+    DATE_PARSE    Date()/DateTime()/IsDate() - Text wird in ein Datum umgewandelt (abhängig von Regionaleinstellung)
+    POS_PARSE     Datumstext wird positionsweise zerlegt: Mid(s,4,2), Left(s,2), Right(s,4) ...
+    DATE_LITERAL  Datum als Textkonstante: '31.12.2025'
+    DB_FMT        Datenbankformat: to_char/convert/date_format/date_order/dateformat/...
+    IO_DATE       ImportFile/ImportString/SaveAs/ExportString... (nur mit --loose, sonst zu viele Treffer)
+    ENV           Auslesen der Regionaleinstellungen: Control Panel\\International, GetLocaleInfo, SetThreadLocale
+                  (mit --loose auch alle GetEnvironment/RegistryGet)
+Spalte Reihenfolge: DMY / MDY / YMD / YM / MY / DM / MD (Reihenfolge der Maske); Massnahme: empfohlene Aktion.
+Spalte Eingabe_Event = ja, wenn der Treffer in einem ItemChanged/EditChanged/Modified/LosingFocus/ItemError-Event
+liegt (dort ist die Eingabe-Parsing-Logik am wahrscheinlichsten).
+In SQL-Code (Embedded SQL, DataWindow-SQL, SQL-Strings) wird das ISO-Format yyyy-mm-dd nicht aufgelistet.
 """
 import argparse, csv, os, re, sys
 from collections import defaultdict
@@ -47,7 +48,7 @@ MASK_CAND = re.compile(r"(?<![A-Za-z0-9_])[dmyDMY]+(?:[./\-][dmyDMY]+){0,2}(?![A
 RUNS = re.compile(r"d+|m+|y+", re.I)
 
 OTHER = [  # (kind, regex)
-    ("REGIONAL",     re.compile(r"\[\s*(shortdate|longdate)\s*\]", re.I)),            # [General]/[Time] neskaitām - tie nav tikai datumi
+    ("REGIONAL",     re.compile(r"\[\s*(shortdate|longdate)\s*\]", re.I)),            # [General]/[Time] werden nicht gezählt - sie betreffen nicht nur Datumswerte
     ("MASK_CTRL",    re.compile(r"\b(DateMask!|DateTimeMask!|DatePicker|DDCalendar\s*=\s*[\"']?yes|DDCalendar\b)", re.I)),
     ("DATE_PARSE",   re.compile(r"\b(IsDate|Date|DateTime)\s*\(\s*(?!Today\s*\(|Now\s*\(|\w+\s*,)", re.I)),
     ("DB_FMT",       re.compile(r"\b(to_char|to_date|dateformat|date_format|date_order|nearest_century|datepart)\b|"
@@ -65,7 +66,7 @@ DATEPART_RE = re.compile(r"^(dat|date|datum\w*|dtm|[a-z]{0,2}dt|dd|mm|yy|yyyy|ga
 
 
 def has_dateword(text):
-    """Vai ir identifikators, kura daļa (atdalīta ar _) ir datuma vārds: ld_dat, ls_datums, dt_no, period ..."""
+    """Enthält ein Bezeichner (Teile durch _ getrennt) ein Datumswort: ld_dat, ls_datum, dt_von, periode ..."""
     for ident in IDENT_RE.findall(text):
         if any(DATEPART_RE.match(part) for part in ident.split("_") if part):
             return True
@@ -83,11 +84,16 @@ def valid_date_literal(text):
     return False
 
 
-ACTION = {"DMY": "MAINĪT (dd.mm.yyyy -> mm/dd/yyyy)", "DM": "MAINĪT", "MDY": "OK (jau ASV)", "MD": "OK (jau ASV)",
-          "YMD": "PĀRBAUDĪT (ISO/DB/fails?)", "YM": "PĀRBAUDĪT (mēnesis/gads)", "MY": "PĀRBAUDĪT (mēnesis/gads)"}
-KIND_ACTION = {"REGIONAL": "OK (seko Windows)", "MASK_CTRL": "PĀRBAUDĪT vadīklu", "IO_DATE": "PĀRBAUDĪT (datumi failos)", "DATE_PARSE": "PĀRBAUDĪT (reģ. iestatījumi)",
-               "POS_PARSE": "PĀRBAUDĪT (parsē pēc pozīcijām)", "DATE_LITERAL": "PĀRBAUDĪT (secība literālī)",
-               "DB_FMT": "PĀRBAUDĪT (DB formāts)", "IO_DATE": "PĀRBAUDĪT (datumi failos)", "ENV": "PĀRBAUDĪT"}
+SQL_CONTEXT_RE = re.compile(r"\b(select\b.+\bfrom|insert\s+into|update\s+[\w.\"\[\]]+\s+set|delete\s+from|\bwhere\b|PBSELECT)", re.I)
+ISO_MASK_RE = re.compile(r"^yyyy-mm-dd$", re.I)
+ISO_CONVERT_RE = re.compile(r"\bconvert\s*\([^;]*?,\s*(20|21|23|120|121|126|127)\s*\)", re.I)
+ISO_LITERAL_RE = re.compile(r"[\"']\s*\d{4}-\d{1,2}-\d{1,2}(\s+[\d:]+)?\s*[\"']")
+
+ACTION = {"DMY": "ÄNDERN (dd.mm.yyyy -> mm/dd/yyyy)", "DM": "ÄNDERN", "MDY": "OK (bereits US-Format)", "MD": "OK (bereits US-Format)",
+          "YMD": "PRÜFEN (ISO/DB/Datei?)", "YM": "PRÜFEN (Monat/Jahr)", "MY": "PRÜFEN (Monat/Jahr)"}
+KIND_ACTION = {"REGIONAL": "OK (folgt Windows)", "MASK_CTRL": "PRÜFEN (Steuerelement)", "DATE_PARSE": "PRÜFEN (Regionaleinstellung)",
+               "POS_PARSE": "PRÜFEN (Parsing nach Position)", "DATE_LITERAL": "PRÜFEN (Reihenfolge im Literal)",
+               "DB_FMT": "PRÜFEN (DB-Format)", "IO_DATE": "PRÜFEN (Datumswerte in Dateien)", "ENV": "PRÜFEN"}
 
 
 def read_text(path):
@@ -121,7 +127,7 @@ def statements(lines):
 
 
 def find_masks(text):
-    """Atgriež [(maska, secība, pozīcija)] - datuma maskas (dd.mm.yyyy, mm/dd/yyyy, ddmmyyyy, yyyy.mm ...)."""
+    """Liefert [(Maske, Reihenfolge, Position)] - Datumsmasken (dd.mm.yyyy, mm/dd/yyyy, ddmmyyyy, yyyy.mm ...)."""
     out = []
     for m in MASK_CAND.finditer(text):
         tok = m.group(0)
@@ -145,7 +151,7 @@ def attr(line, key):
 
 
 def dw_date_columns(lines):
-    """DataWindow (.srd): date/datetime/timestamp kolonnas no table(...) + atbilstošais attēlotais lauks column(...)."""
+    """DataWindow (.srd): date/datetime/timestamp-Spalten aus table(...) + zugehöriges Anzeigefeld column(...)."""
     disp = {}
     for ln in lines:
         if DISP_RE.match(ln):
@@ -161,28 +167,28 @@ def dw_date_columns(lines):
             fmt, mask = attr(d, "format"), attr(d, "editmask.mask")
             style = ("editmask" if "editmask." in d.lower() else "dddw" if "dddw." in d.lower() else
                      "ddlb" if "ddlb." in d.lower() else "checkbox" if "checkbox." in d.lower() else
-                     "radiobuttons" if "radiobuttons." in d.lower() else "edit") if d else "(nav attēlots)"
+                     "radiobuttons" if "radiobuttons." in d.lower() else "edit") if d else "(nicht angezeigt)"
             ddcal = attr(d, "editmask.ddcalendar")
             tabseq = attr(d, "tabsequence")
             out.append(dict(column=name, type=typ, dbname=dbm.group(1) if dbm else "", format=fmt, style=style,
                             mask=mask, ddcalendar=ddcal, tabseq=tabseq))
         for m in ARG_RE.finditer(ln):
             if re.search(r"\barguments\s*=", ln, re.I) or ln.lstrip().startswith("("):
-                out.append(dict(column=m.group(1), type=m.group(2).lower() + " (retrieval arg)", dbname="", format="",
+                out.append(dict(column=m.group(1), type=m.group(2).lower() + " (Retrieval-Argument)", dbname="", format="",
                                 style="", mask="", ddcalendar="", tabseq=""))
     return out
 
 
 def dw_action(c):
-    if "arg" in c["type"]:
-        return "PĀRBAUDĪT (retrieval arguments - datums ievadā/izsaukumā)"
+    if "argument" in c["type"].lower():
+        return "PRÜFEN (Retrieval-Argument - Datum bei Aufruf/Eingabe)"
     for txt in (c["mask"], c["format"]):
         ms = find_masks(txt) if txt else []
         if ms:
-            return ACTION.get(ms[0][1], "PĀRBAUDĪT")
+            return ACTION.get(ms[0][1], "PRÜFEN")
     if c["format"].startswith("[") or not c["format"]:
-        return "OK (seko Windows)" if c["style"] != "(nav attēlots)" else "PĀRBAUDĪT (nav attēlots)"
-    return "PĀRBAUDĪT"
+        return "OK (folgt Windows)" if c["style"] != "(nicht angezeigt)" else "PRÜFEN (nicht angezeigt)"
+    return "PRÜFEN"
 
 
 SRD_OBJ_RE = re.compile(r"^\s*(column|compute|text)\s*\(", re.I)
@@ -198,7 +204,7 @@ def snippet(text, pos, width=110):
 
 
 def short_code(s, pos, is_srd):
-    """DataWindow objektam (column/compute/text) atstāj tikai ar datumu saistītos atribūtus (bez border, color, x, y ...)."""
+    """Bei DataWindow-Objekten (column/compute/text) nur datumsrelevante Attribute behalten (ohne border, color, x, y ...)."""
     m = SRD_OBJ_RE.match(s) if is_srd else None
     if m:
         parts = [m.group(1).lower()]
@@ -229,7 +235,7 @@ def main():
     ap.add_argument("--out", default="date_formats.csv")
     ap.add_argument("--ext", default=",".join(DEFAULT_EXT))
     ap.add_argument("--quiet", action="store_true")
-    ap.add_argument("--loose", action="store_true", help="iekļaut arī vispārīgos atradumus (ImportFile/SaveAs, GetEnvironment/RegistryGet)")
+    ap.add_argument("--loose", action="store_true", help="auch allgemeine Treffer aufnehmen (ImportFile/SaveAs, GetEnvironment/RegistryGet)")
     a = ap.parse_args()
     exts = tuple(e.strip().lower() if e.strip().startswith(".") else "." + e.strip().lower() for e in a.ext.split(",") if e.strip())
 
@@ -244,7 +250,7 @@ def main():
             try:
                 lines = read_text(path).splitlines()
             except OSError as e:
-                print(f"Nevar nolasīt {rel}: {e}", file=sys.stderr); continue
+                print(f"Kann {rel} nicht lesen: {e}", file=sys.stderr); continue
             files_scanned += 1
             is_srd = f.lower().endswith(".srd")
             if is_srd:
@@ -260,20 +266,26 @@ def main():
             for start, idx, stmt in statements(lines):
                 s = stmt.replace("~\"", "'").replace("~'", "'")
                 scope = scope_at.get(start, "")
-                inp = "yes" if INPUT_EVENT_RE.search(scope) else ""
+                inp = "ja" if INPUT_EVENT_RE.search(scope) else ""
                 found = []                                    # (kind, mask, order, action, pos)
+                in_sql = bool(SQL_START.match(s) or SQL_CONTEXT_RE.search(s))
                 masks = find_masks(s)
                 if masks:
                     for mask, order, pos in masks:
-                        found.append((mask_kind(s, is_srd, pos), mask, order, ACTION.get(order, "PĀRBAUDĪT"), pos))
+                        if in_sql and ISO_MASK_RE.match(mask):
+                            continue                          # yyyy-mm-dd in SQL: nicht auflisten
+                        found.append((mask_kind(s, is_srd, pos), mask, order, ACTION.get(order, "PRÜFEN"), pos))
                 for kind, rx in OTHER + (OTHER_LOOSE if a.loose else []):
                     if rx.search(s):
+                        if kind == "DB_FMT" and in_sql and (ISO_CONVERT_RE.search(s) or any(
+                                ISO_MASK_RE.match(mk) for mk, _, _ in masks)):
+                            continue                          # ISO (yyyy-mm-dd) in SQL: nicht auflisten
                         if kind == "MASK_CTRL" and is_srd:
                             continue                          # DataWindow kolonnas (t.sk. ddcalendar) ir *_dwcolumns.csv
                         if kind == "DATE_PARSE" and is_srd and not re.search(r"expression\s*=|initial|validation", s, re.I):
                             continue
                         found.append((kind, "", "", KIND_ACTION[kind], rx.search(s).start()))
-                if valid_date_literal(s):
+                if valid_date_literal(s) and not (in_sql and ISO_LITERAL_RE.search(s) and not re.search(r"[\"']\s*\d{1,2}[./]\d{1,2}[./]\d{4}", s)):
                     found.append(("DATE_LITERAL", "", "", KIND_ACTION["DATE_LITERAL"], LITERAL_RE.search(s).start()))
                 if (len(POS_RE.findall(s)) >= 2 or (POS_RE.search(s) and has_dateword(s))):
                     found.append(("POS_PARSE", "", "", KIND_ACTION["POS_PARSE"], POS_RE.search(s).start()))
@@ -284,11 +296,11 @@ def main():
                     seen.add(key)
                     rows.append([kind, action, rel, start + 1, scope, inp, mask, order, short_code(s, pos, is_srd)])
 
-    prio = {"MAINĪT": 0, "PĀRBAUDĪT": 1, "OK": 2}
+    prio = {"ÄNDERN": 0, "PRÜFEN": 1, "OK": 2}
     rows.sort(key=lambda r: (prio.get(r[1].split(" ")[0], 3), r[0], r[2], r[3]))
     with open(a.out, "w", newline="", encoding="utf-8-sig") as fh:
         w = csv.writer(fh, delimiter=";")
-        w.writerow(["kind", "action", "file", "line", "function_or_event", "input_event", "mask", "order", "code"])
+        w.writerow(["Art", "Massnahme", "Datei", "Zeile", "Funktion_oder_Event", "Eingabe_Event", "Maske", "Reihenfolge", "Code"])
         w.writerows(rows)
 
     masks = defaultdict(lambda: {"n": 0, "files": set(), "kinds": set(), "order": ""})
@@ -299,29 +311,30 @@ def main():
     summ = f"{base}_summary{ext or '.csv'}"
     with open(summ, "w", newline="", encoding="utf-8-sig") as fh:
         w = csv.writer(fh, delimiter=";")
-        w.writerow(["mask", "order", "action", "count", "files", "kinds"])
+        w.writerow(["Maske", "Reihenfolge", "Massnahme", "Anzahl", "Dateien", "Arten"])
         for m, d in sorted(masks.items(), key=lambda x: -x[1]["n"]):
-            w.writerow([m, d["order"], ACTION.get(d["order"], "PĀRBAUDĪT"), d["n"], len(d["files"]), ",".join(sorted(d["kinds"]))])
+            w.writerow([m, d["order"], ACTION.get(d["order"], "PRÜFEN"), d["n"], len(d["files"]), ",".join(sorted(d["kinds"]))])
 
     dwf = f"{base}_dwcolumns{ext or '.csv'}"
     dwcols.sort(key=lambda r: (r[0].lower(), r[1].lower()))
     with open(dwf, "w", newline="", encoding="utf-8-sig") as fh:
         w = csv.writer(fh, delimiter=";")
-        w.writerow(["datawindow_file", "column", "type", "dbname", "edit_style", "format", "mask", "ddcalendar",
-                    "tabsequence", "action"])
+        w.writerow(["DataWindow_Datei", "Spalte", "Typ", "DB_Name", "Edit_Stil", "Format", "Maske", "DDCalendar",
+                    "Tabsequenz", "Massnahme"])
         w.writerows(dwcols)
 
     if not a.quiet:
-        print(f"Skenēti faili: {files_scanned}, atradumi: {len(rows)}  ->  {a.out}, {summ}\n")
+        print(f"Gescannte Dateien: {files_scanned}, Treffer: {len(rows)}  ->  {a.out}, {summ}, {dwf}")
+        print(f"DataWindow-Datumsspalten: {len(dwcols)} (in {len({r[0] for r in dwcols})} .srd-Dateien)  ->  {dwf}\n")
         by_kind = defaultdict(set); cnt = defaultdict(int)
         for r in rows: cnt[r[0]] += 1; by_kind[r[0]].add(r[2])
-        print(f"{'kind':14} {'atradumi':>9} {'faili':>6}")
-        for k in sorted(cnt, key=lambda k: -cnt[k]): print(f"{k:14} {cnt[k]:>9} {len(by_kind[k]):>6}")
-        print(f"\n{'maska':22} {'secība':7} {'skaits':>7} {'faili':>6}  action")
+        print(f"{'Art':14} {'Treffer':>9} {'Dateien':>8}")
+        for k in sorted(cnt, key=lambda k: -cnt[k]): print(f"{k:14} {cnt[k]:>9} {len(by_kind[k]):>8}")
+        print(f"\n{'Maske':22} {'Reihenf.':8} {'Anzahl':>7} {'Dateien':>8}  Massnahme")
         for m, d in sorted(masks.items(), key=lambda x: -x[1]["n"]):
-            print(f"{m:22} {d['order']:7} {d['n']:>7} {len(d['files']):>6}  {ACTION.get(d['order'], 'PĀRBAUDĪT')}")
+            print(f"{m:22} {d['order']:8} {d['n']:>7} {len(d['files']):>8}  {ACTION.get(d['order'], 'PRÜFEN')}")
         n_inp = sum(1 for r in rows if r[5])
-        if n_inp: print(f"\nAtradumi ievades notikumos (ItemChanged/EditChanged/...): {n_inp}  (kolonna input_event)")
+        if n_inp: print(f"\nTreffer in Eingabe-Events (ItemChanged/EditChanged/...): {n_inp}  (Spalte Eingabe_Event)")
 
 
 if __name__ == "__main__":
