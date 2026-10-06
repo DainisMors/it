@@ -4,7 +4,7 @@ Meklē PowerBuilder (2025 R2) eksportēto avotu failos (.srw .sru .srd .srf .srm
 darbības ar laukiem, kas uzskaitīti columns.txt (nosaukumi atdalīti ar komatu).
 
 Lietošana:
-    python find_column_usage.py [--root .] [--columns columns.txt] [--out column_usage.csv]
+    python find_column_usage.py [--root .] [--columns columns.txt] [--out column_usage]
                                 [--ext .srw,.sru,...] [--case-sensitive] [--quiet]
 
 Katram atradumam nosaka veidu (kind):
@@ -15,7 +15,8 @@ Katram atradumam nosaka veidu (kind):
     DATE_OP - datuma/virknes manipulācija ar to pašu teikumu: Date(), String(.., 'yyyy.mm'), Left/Mid/Right,
               RelativeDate, Month/Year/Day, Replace, Integer, ...
     REF     - cits pieminējums
-Izvade: CSV (UTF-8 ar BOM, atveras Excel) + kopsavilkums konsolē.
+Izvade: katram laukam savs CSV fails direktorijā --out (<lauks>.csv; UTF-8 ar BOM, atveras Excel),
+        arī tad, ja lauks nav atrasts (fails ar vienu virsrakstu rindu) + kopsavilkums konsolē.
 """
 import argparse, csv, os, re, sys
 from collections import defaultdict
@@ -105,7 +106,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--root", default=".")
     ap.add_argument("--columns", default="columns.txt")
-    ap.add_argument("--out", default="column_usage.csv")
+    ap.add_argument("--out", default="column_usage", help="direktorija rezultātu failiem")
     ap.add_argument("--ext", default=",".join(DEFAULT_EXT), help="paplašinājumi, atdalīti ar komatu")
     ap.add_argument("--case-sensitive", action="store_true", help="PowerBuilder nav reģistrjutīgs, pēc noklusējuma ignorē reģistru")
     ap.add_argument("--quiet", action="store_true")
@@ -155,13 +156,18 @@ def main():
     for r in rows: files_by_col[r[0]].add(r[1])
 
     rows.sort(key=lambda r: (r[0].lower(), r[1], r[2]))
-    with open(a.out, "w", newline="", encoding="utf-8-sig") as fh:
-        w = csv.writer(fh, delimiter=";")
-        w.writerow(["column", "file", "line", "function_or_event", "kind", "code"])
-        w.writerows(rows)
+    os.makedirs(a.out, exist_ok=True)
+    by_col = defaultdict(list)
+    for r in rows: by_col[r[0]].append(r[1:])
+    for c in cols:
+        fname = re.sub(r'[<>:"/\\|?*\s]', "_", c) + ".csv"
+        with open(os.path.join(a.out, fname), "w", newline="", encoding="utf-8-sig") as fh:
+            w = csv.writer(fh, delimiter=";")
+            w.writerow(["file", "line", "function_or_event", "kind", "code"])
+            w.writerows(by_col.get(c, []))
 
     if not a.quiet:
-        print(f"Skenēti faili: {files_scanned}, lauki: {len(cols)}, atradumi: {len(rows)}  ->  {a.out}\n")
+        print(f"Skenēti faili: {files_scanned}, lauki: {len(cols)}, atradumi: {len(rows)}  ->  {a.out}{os.sep}<lauks>.csv\n")
         print(f"{'column':30} {'files':>5} {'DW_DEF':>6} {'SQL':>5} {'SET':>5} {'GET':>5} {'DATE_OP':>7} {'REF':>5}")
         for c in cols:
             d = per_col.get(c, {})
