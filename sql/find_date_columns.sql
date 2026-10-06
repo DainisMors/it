@@ -5,11 +5,12 @@
     STRING_YM   - teksts ar mēnesi/gadu: yyyy.mm vai yyyymm (arī yyyy-mm, yyyy/mm)
     INT_YM      - skaitlis yyyymm (piem. 202410)
   Teksta/skaitļu laukus pārbauda pēc DATIEM (paraugs v_sample ierakstu), nevis pēc nosaukuma.
+  NULL un '' vērtības tiek ignorētas; visām pārējām vērtībām jāatbilst formātam (100%).
   Skripts tikai lasa datus; izmaiņas netiek veiktas.
 */
 BEGIN
     DECLARE v_sample  INT           = 1000;   -- cik ierakstus pārbaudīt katrā laukā
-    DECLARE v_minpct  DECIMAL(5,2)  = 90.0;   -- % no parauga, kam jāatbilst formātam
+    DECLARE v_minpct  DECIMAL(5,2)  = 100.0;  -- % no parauga, kam jāatbilst formātam (100 = visām ne-tukšām vērtībām)
     DECLARE v_owner   VARCHAR(128)  = '%';    -- ierobežot pēc īpašnieka, piem. 'DBA'
 
     DECLARE LOCAL TEMPORARY TABLE res (
@@ -72,7 +73,7 @@ BEGIN
                || '         AND SUBSTR(v,5,2) BETWEEN `01` AND `12` AND SUBSTR(v,7,2) BETWEEN `01` AND `31` THEN `STRING_DATE`'
                || '   END AS k'
                || '   FROM (SELECT TOP {N} REPLACE(REPLACE(TRIM(CAST({COL} AS VARCHAR(100))),`-`,`.`),`/`,`.`) AS v'
-               || '         FROM {TBL} WHERE {COL} IS NOT NULL) x'
+               || '         FROM {TBL} WHERE {COL} IS NOT NULL AND TRIM(CAST({COL} AS VARCHAR(100))) <> ``) x'
                || '  ) f GROUP BY k'
                || ' ) g'
                || ') h WHERE k IS NOT NULL AND pct >= {PCT}';
