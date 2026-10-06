@@ -25,7 +25,7 @@ BEGIN
          JOIN SYS.SYSTAB    t ON t.table_id  = c.table_id
          JOIN SYS.SYSUSER   u ON u.user_id   = t.creator
          JOIN SYS.SYSDOMAIN d ON d.domain_id = c.domain_id
-    WHERE t.table_type_str = 'BASE' AND t.server_type = 'SA'
+    WHERE t.table_type_str = 'BASE'
       AND u.user_name NOT IN ('SYS','dbo','rs_systabgroup')
       AND u.user_name LIKE v_owner
       AND d.domain_name IN ('date','timestamp','timestamp with time zone');
@@ -37,7 +37,7 @@ BEGIN
              JOIN SYS.SYSTAB    t ON t.table_id  = c.table_id
              JOIN SYS.SYSUSER   u ON u.user_id   = t.creator
              JOIN SYS.SYSDOMAIN d ON d.domain_id = c.domain_id
-        WHERE t.table_type_str = 'BASE' AND t.server_type = 'SA'
+        WHERE t.table_type_str = 'BASE'
           AND u.user_name NOT IN ('SYS','dbo','rs_systabgroup')
           AND u.user_name LIKE v_owner
           AND ( (d.domain_name IN ('char','varchar','nchar','nvarchar') AND c.width >= 6)
