@@ -1,11 +1,11 @@
 /*
-  Atrod datubāzē laukus, kuros glabāti datumi.  SAP SQL Anywhere 17 (Watcom-SQL).
-    NATIVE      - date / timestamp (datetime, smalldatetime) / timestamp with time zone
+  Atrod datubāzē teksta/skaitļa laukus, kuros glabāti datumi, un atgriež to nosaukumus vienā rindā.  SAP SQL Anywhere 17 (Watcom-SQL).
     STRING_DATE - teksts ar datumu: yyyy-mm-dd, yyyy.mm.dd, dd.mm.yyyy, yyyymmdd (arī ar laiku aiz datuma)
     STRING_YM   - teksts ar mēnesi/gadu: yyyy.mm vai yyyymm (arī yyyy-mm, yyyy/mm)
     INT_YM      - skaitlis yyyymm (piem. 202410)
   Teksta/skaitļu laukus pārbauda pēc DATIEM (paraugs v_sample ierakstu), nevis pēc nosaukuma.
   NULL un '' vērtības tiek ignorētas; visām pārējām vērtībām jāatbilst formātam (100%).
+  Natīvie date/timestamp/datetime lauki netiek iekļauti. Katrs lauka nosaukums rezultātā parādās vienu reizi.
   Skripts tikai lasa datus; izmaiņas netiek veiktas.
 */
 BEGIN
@@ -18,19 +18,7 @@ BEGIN
         data_type  VARCHAR(128), kind VARCHAR(20), hit_pct DECIMAL(5,2) NULL, example VARCHAR(100) NULL
     ) ON COMMIT PRESERVE ROWS;
 
-    /* 1) Natīvie datuma tipi */
-    INSERT INTO res (owner_name, table_name, column_name, data_type, kind)
-    SELECT u.user_name, t.table_name, c.column_name, d.domain_name, 'NATIVE'
-    FROM SYS.SYSTABCOL c
-         JOIN SYS.SYSTAB    t ON t.table_id  = c.table_id
-         JOIN SYS.SYSUSER   u ON u.user_id   = t.creator
-         JOIN SYS.SYSDOMAIN d ON d.domain_id = c.domain_id
-    WHERE t.table_type_str = 'BASE'
-      AND u.user_name NOT IN ('SYS','dbo','rs_systabgroup')
-      AND u.user_name LIKE v_owner
-      AND d.domain_name IN ('date','timestamp','timestamp with time zone');
-
-    /* 2) Teksta un skaitļu lauki - pārbaude pēc satura */
+    /* Teksta un skaitļu lauki - pārbaude pēc satura */
     FOR lp AS cur CURSOR FOR
         SELECT u.user_name AS o, t.table_name AS tb, c.column_name AS cl, d.domain_name AS dt
         FROM SYS.SYSTABCOL c
@@ -96,7 +84,7 @@ BEGIN
         END;
     END FOR;
 
-    SELECT owner_name, table_name, column_name, data_type, kind, hit_pct, example
-    FROM res
-    ORDER BY kind, owner_name, table_name, column_name;
+    -- Viena rinda: unikālie lauku nosaukumi, atdalīti ar komatiem
+    SELECT LIST(DISTINCT column_name, ',' ORDER BY column_name) AS column_names
+    FROM res;
 END;
