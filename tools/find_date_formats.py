@@ -24,8 +24,9 @@ kind (kas atrasts):
     POS_PARSE     datuma teksta sadalīšana pēc pozīcijām: Mid(s,4,2), Left(s,2), Right(s,4) ...
     DATE_LITERAL  datums kā teksta konstante: '31.12.2025', '2025-12-31'
     DB_FMT        datubāzes formāts: to_char/convert/date_format/date_order/dateformat/...
-    IO_DATE       ImportFile/ImportString/SaveAs/ExportString... (datumi failos)
-    ENV           reģionālo iestatījumu nolasīšana: GetEnvironment, RegistryGet, GetLocaleInfo, SetThreadLocale
+    IO_DATE       ImportFile/ImportString/SaveAs/ExportString... (tikai ar --loose, citādi pārāk daudz trokšņa)
+    ENV           reģionālo iestatījumu nolasīšana: Control Panel\\International, GetLocaleInfo, SetThreadLocale
+                  (ar --loose arī visi GetEnvironment/RegistryGet)
 Kolonna order: DMY / MDY / YMD / YM / MY / DM / MD  (maskas secība);  action: ko ar to darīt.
 Kolonna input_event = yes, ja atradums ir ItemChanged/EditChanged/Modified/LosingFocus/ItemError notikumā
 (tur visticamāk atrodas ievades parsēšanas loģika).
@@ -46,21 +47,45 @@ MASK_CAND = re.compile(r"(?<![A-Za-z0-9_])[dmyDMY]+(?:[./\-][dmyDMY]+){0,2}(?![A
 RUNS = re.compile(r"d+|m+|y+", re.I)
 
 OTHER = [  # (kind, regex)
-    ("REGIONAL",     re.compile(r"\[\s*(shortdate|longdate|general|time)\s*\]", re.I)),
-    ("MASK_CTRL",    re.compile(r"\b(DateMask!|DateTimeMask!|DatePicker|DDCalendar|MaskDataType)\b", re.I)),
-    ("DATE_PARSE",   re.compile(r"\b(Date|DateTime|IsDate|RelativeDate)\s*\(", re.I)),
-    ("DATE_LITERAL", re.compile(r"[\"']\s*(\d{4}[-./]\d{1,2}[-./]\d{1,2}|\d{1,2}[-./]\d{1,2}[-./]\d{4})(\s+[\d:]+)?\s*[\"']")),
-    ("DB_FMT",       re.compile(r"\b(to_char|to_date|convert|dateformat|date_format|date_order|nearest_century|datepart|"
-                                r"set\s+(temporary\s+)?option)\b", re.I)),
-    ("IO_DATE",      re.compile(r"\b(ImportFile|ImportString|ImportClipboard|SaveAs|ExportString|FileRead|FileWrite)\s*\(", re.I)),
-    ("ENV",          re.compile(r"\b(GetEnvironment|RegistryGet|GetLocaleInfo|SetThreadLocale|sShortDate|iDate)\b", re.I)),
+    ("REGIONAL",     re.compile(r"\[\s*(shortdate|longdate)\s*\]", re.I)),            # [General]/[Time] neskaitām - tie nav tikai datumi
+    ("MASK_CTRL",    re.compile(r"\b(DateMask!|DateTimeMask!|DatePicker|DDCalendar\s*=\s*[\"']?yes|DDCalendar\b)", re.I)),
+    ("DATE_PARSE",   re.compile(r"\b(IsDate|Date|DateTime)\s*\(\s*(?!Today\s*\(|Now\s*\(|\w+\s*,)", re.I)),
+    ("DB_FMT",       re.compile(r"\b(to_char|to_date|dateformat|date_format|date_order|nearest_century|datepart)\b|"
+                                r"\bconvert\s*\(\s*n?(var)?char\s*(\(\d+\))?\s*,[^;]*?,\s*\d{1,3}\s*\)", re.I)),
+    ("ENV",          re.compile(r"Control\s*Panel.{0,4}International|\b(GetLocaleInfo|SetThreadLocale|sShortDate|iDate)\b", re.I)),
 ]
+OTHER_LOOSE = [
+    ("IO_DATE",      re.compile(r"\b(ImportFile|ImportString|ImportClipboard|SaveAs|ExportString)\s*\(", re.I)),
+    ("ENV",          re.compile(r"\b(GetEnvironment|RegistryGet)\b", re.I)),
+]
+LITERAL_RE = re.compile(r"[\"']\s*(\d{4}[-./]\d{1,2}[-./]\d{1,2}|\d{1,2}[-./]\d{1,2}[-./]\d{4})(\s+[\d:]+)?\s*[\"']")
 POS_RE = re.compile(r"\bMid\s*\(\s*[^,()]+,\s*[3-9]\s*,\s*[24]\s*\)|\b(Left\s*\([^,()]+,\s*[24]\s*\)|Right\s*\([^,()]+,\s*[24]\s*\))", re.I)
-DATEWORD_RE = re.compile(r"(dat|date|datum|dt|dd|mm|yy|yyyy|gads|menes|mēnes|diena|period)", re.I)
+IDENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+DATEPART_RE = re.compile(r"^(dat|date|datum\w*|dtm|[a-z]{0,2}dt|dd|mm|yy|yyyy|gads|menes|diena|period\w*)$", re.I)
+
+
+def has_dateword(text):
+    """Vai ir identifikators, kura daļa (atdalīta ar _) ir datuma vārds: ld_dat, ls_datums, dt_no, period ..."""
+    for ident in IDENT_RE.findall(text):
+        if any(DATEPART_RE.match(part) for part in ident.split("_") if part):
+            return True
+    return False
+
+
+def valid_date_literal(text):
+    for m in LITERAL_RE.finditer(text):
+        n = re.split(r"[-./]", m.group(1))
+        n = [int(x) for x in n]
+        a, b, c = n
+        y, x1, x2 = (a, b, c) if a > 31 else (c, a, b)
+        if 1900 <= y <= 2100 and ((1 <= x1 <= 12 and 1 <= x2 <= 31) or (1 <= x2 <= 12 and 1 <= x1 <= 31)):
+            return True
+    return False
+
 
 ACTION = {"DMY": "MAINĪT (dd.mm.yyyy -> mm/dd/yyyy)", "DM": "MAINĪT", "MDY": "OK (jau ASV)", "MD": "OK (jau ASV)",
           "YMD": "PĀRBAUDĪT (ISO/DB/fails?)", "YM": "PĀRBAUDĪT (mēnesis/gads)", "MY": "PĀRBAUDĪT (mēnesis/gads)"}
-KIND_ACTION = {"REGIONAL": "OK (seko Windows)", "MASK_CTRL": "PĀRBAUDĪT vadīklu", "DATE_PARSE": "PĀRBAUDĪT (reģ. iestatījumi)",
+KIND_ACTION = {"REGIONAL": "OK (seko Windows)", "MASK_CTRL": "PĀRBAUDĪT vadīklu", "IO_DATE": "PĀRBAUDĪT (datumi failos)", "DATE_PARSE": "PĀRBAUDĪT (reģ. iestatījumi)",
                "POS_PARSE": "PĀRBAUDĪT (parsē pēc pozīcijām)", "DATE_LITERAL": "PĀRBAUDĪT (secība literālī)",
                "DB_FMT": "PĀRBAUDĪT (DB formāts)", "IO_DATE": "PĀRBAUDĪT (datumi failos)", "ENV": "PĀRBAUDĪT"}
 
@@ -178,6 +203,7 @@ def main():
     ap.add_argument("--out", default="date_formats.csv")
     ap.add_argument("--ext", default=",".join(DEFAULT_EXT))
     ap.add_argument("--quiet", action="store_true")
+    ap.add_argument("--loose", action="store_true", help="iekļaut arī vispārīgos atradumus (ImportFile/SaveAs, GetEnvironment/RegistryGet)")
     a = ap.parse_args()
     exts = tuple(e.strip().lower() if e.strip().startswith(".") else "." + e.strip().lower() for e in a.ext.split(",") if e.strip())
 
@@ -215,12 +241,14 @@ def main():
                 if masks:
                     for mask, order, pos in masks:
                         found.append((mask_kind(s, is_srd, pos), mask, order, ACTION.get(order, "PĀRBAUDĪT")))
-                for kind, rx in OTHER:
+                for kind, rx in OTHER + (OTHER_LOOSE if a.loose else []):
                     if rx.search(s):
                         if kind == "DATE_PARSE" and is_srd and not re.search(r"expression\s*=|initial|validation", s, re.I):
                             continue
                         found.append((kind, "", "", KIND_ACTION[kind]))
-                if POS_RE.search(s) and DATEWORD_RE.search(s):
+                if valid_date_literal(s):
+                    found.append(("DATE_LITERAL", "", "", KIND_ACTION["DATE_LITERAL"]))
+                if (len(POS_RE.findall(s)) >= 2 or (POS_RE.search(s) and has_dateword(s))):
                     found.append(("POS_PARSE", "", "", KIND_ACTION["POS_PARSE"]))
                 seen = set()
                 for kind, mask, order, action in found:
