@@ -6,7 +6,9 @@ attēlošanas formāts. Palīdz saplānot pāreju uz ASV formātu (mm/dd/yyyy).
 Lietošana:
     python find_date_formats.py [--root .] [--out date_formats.csv] [--ext .srw,.sru,...] [--quiet]
 
-Izvade: <out> (detalizēts saraksts) un <out>_summary.csv (atrastās formāta maskas ar skaitu), kopsavilkums konsolē.
+Izvade: <out> (detalizēts saraksts), <out>_summary.csv (atrastās formāta maskas ar skaitu),
+        <out>_dwcolumns.csv (DataWindow date/datetime/timestamp kolonnas un retrieval argumenti ar to formātu,
+        rediģēšanas stilu un masku), kopsavilkums konsolē.
 
 kind (kas atrasts):
     DW_FORMAT     DataWindow kolonnas/lauka format="..."          (.srd)
@@ -106,6 +108,58 @@ def find_masks(text):
     return out
 
 
+TABLE_COL_RE = re.compile(r"\bcolumn\s*=\s*\(\s*type\s*=\s*(date|datetime|timestamp)\b(.*?)\bname\s*=\s*(\w+)(.*?)\)", re.I)
+DBNAME_RE = re.compile(r"dbname\s*=\s*[\"~]*([\w.$#%]+)", re.I)
+ARG_RE = re.compile(r"\(\s*[\"~]*(\w+)[\"~]*\s*,\s*(date|datetime|timestamp)\s*\)", re.I)
+DISP_RE = re.compile(r"^\s*column\s*\(", re.I)
+
+
+def attr(line, key):
+    m = re.search(r"(?<![\w.])" + re.escape(key) + r"\s*=\s*(?:~?\"([^\"~]*)~?\"|([^\s)]+))", line, re.I)
+    return (m.group(1) if m.group(1) is not None else m.group(2)) if m else ""
+
+
+def dw_date_columns(lines):
+    """DataWindow (.srd): date/datetime/timestamp kolonnas no table(...) + atbilstošais attēlotais lauks column(...)."""
+    disp = {}
+    for ln in lines:
+        if DISP_RE.match(ln):
+            n = attr(ln, "name")
+            if n and n.lower() not in disp:
+                disp[n.lower()] = ln
+    out = []
+    for ln in lines:
+        for m in TABLE_COL_RE.finditer(ln):
+            typ, name = m.group(1).lower(), m.group(3)
+            dbm = DBNAME_RE.search(ln[m.start():])
+            d = disp.get(name.lower(), "")
+            fmt, mask = attr(d, "format"), attr(d, "editmask.mask")
+            style = ("editmask" if "editmask." in d.lower() else "dddw" if "dddw." in d.lower() else
+                     "ddlb" if "ddlb." in d.lower() else "checkbox" if "checkbox." in d.lower() else
+                     "radiobuttons" if "radiobuttons." in d.lower() else "edit") if d else "(nav attēlots)"
+            ddcal = attr(d, "editmask.ddcalendar")
+            tabseq = attr(d, "tabsequence")
+            out.append(dict(column=name, type=typ, dbname=dbm.group(1) if dbm else "", format=fmt, style=style,
+                            mask=mask, ddcalendar=ddcal, tabseq=tabseq))
+        for m in ARG_RE.finditer(ln):
+            if re.search(r"\barguments\s*=", ln, re.I) or ln.lstrip().startswith("("):
+                out.append(dict(column=m.group(1), type=m.group(2).lower() + " (retrieval arg)", dbname="", format="",
+                                style="", mask="", ddcalendar="", tabseq=""))
+    return out
+
+
+def dw_action(c):
+    if "arg" in c["type"]:
+        return "PĀRBAUDĪT (retrieval arguments - datums ievadā/izsaukumā)"
+    for txt in (c["mask"], c["format"]):
+        ms = find_masks(txt) if txt else []
+        if ms:
+            return ACTION.get(ms[0][1], "PĀRBAUDĪT")
+    if c["format"].startswith("[") or not c["format"]:
+        return "OK (seko Windows)" if c["style"] != "(nav attēlots)" else "PĀRBAUDĪT (nav attēlots)"
+    return "PĀRBAUDĪT"
+
+
 def mask_kind(stmt, is_srd, pos):
     if is_srd:
         before = stmt[max(0, pos - 40):pos]
@@ -127,7 +181,7 @@ def main():
     a = ap.parse_args()
     exts = tuple(e.strip().lower() if e.strip().startswith(".") else "." + e.strip().lower() for e in a.ext.split(",") if e.strip())
 
-    rows, files_scanned = [], 0
+    rows, dwcols, files_scanned = [], [], 0
     for dp, dn, fn in os.walk(a.root):
         dn[:] = [d for d in dn if d not in SKIP_DIRS]
         for f in sorted(fn):
@@ -141,6 +195,10 @@ def main():
                 print(f"Nevar nolasīt {rel}: {e}", file=sys.stderr); continue
             files_scanned += 1
             is_srd = f.lower().endswith(".srd")
+            if is_srd:
+                for c in dw_date_columns(lines):
+                    dwcols.append([rel, c["column"], c["type"], c["dbname"], c["style"], c["format"], c["mask"],
+                                   c["ddcalendar"], c["tabseq"], dw_action(c)])
             scope_at, cur = {}, ""
             for i, ln in enumerate(lines):
                 m = HEAD_RE.match(ln)
@@ -189,6 +247,14 @@ def main():
         w.writerow(["mask", "order", "action", "count", "files", "kinds"])
         for m, d in sorted(masks.items(), key=lambda x: -x[1]["n"]):
             w.writerow([m, d["order"], ACTION.get(d["order"], "PĀRBAUDĪT"), d["n"], len(d["files"]), ",".join(sorted(d["kinds"]))])
+
+    dwf = f"{base}_dwcolumns{ext or '.csv'}"
+    dwcols.sort(key=lambda r: (r[0].lower(), r[1].lower()))
+    with open(dwf, "w", newline="", encoding="utf-8-sig") as fh:
+        w = csv.writer(fh, delimiter=";")
+        w.writerow(["datawindow_file", "column", "type", "dbname", "edit_style", "format", "mask", "ddcalendar",
+                    "tabsequence", "action"])
+        w.writerows(dwcols)
 
     if not a.quiet:
         print(f"Skenēti faili: {files_scanned}, atradumi: {len(rows)}  ->  {a.out}, {summ}\n")
