@@ -31,6 +31,7 @@ Spalte Reihenfolge: DMY / MDY / YMD / YM / MY / DM / MD (Reihenfolge der Maske);
 Spalte Eingabe_Event = ja, wenn der Treffer in einem ItemChanged/EditChanged/Modified/LosingFocus/ItemError-Event
 liegt (dort ist die Eingabe-Parsing-Logik am wahrscheinlichsten).
 In SQL-Code (Embedded SQL, DataWindow-SQL, SQL-Strings) wird das ISO-Format yyyy-mm-dd nicht aufgelistet.
+Datumskonstanten, die direkt aus einem String erzeugt werden, z.B. Date('1900-01-01'), werden nicht aufgelistet.
 """
 import argparse, csv, os, re, sys
 from collections import defaultdict
@@ -50,7 +51,7 @@ RUNS = re.compile(r"d+|m+|y+", re.I)
 OTHER = [  # (kind, regex)
     ("REGIONAL",     re.compile(r"\[\s*(shortdate|longdate)\s*\]", re.I)),            # [General]/[Time] werden nicht gezählt - sie betreffen nicht nur Datumswerte
     ("MASK_CTRL",    re.compile(r"\b(DateMask!|DateTimeMask!|DatePicker|DDCalendar\s*=\s*[\"']?yes|DDCalendar\b)", re.I)),
-    ("DATE_PARSE",   re.compile(r"\b(IsDate|Date|DateTime)\s*\(\s*(?!Today\s*\(|Now\s*\(|\w+\s*,)", re.I)),
+    ("DATE_PARSE",   re.compile(r"""\b(IsDate|Date|DateTime)\s*\(\s*(?!["']|\s|Today\s*\(|Now\s*\(|\w+\s*,)""", re.I)),  # Date('1900-01-01') = Konstante, nicht gelistet
     ("DB_FMT",       re.compile(r"\b(to_char|to_date|dateformat|date_format|date_order|nearest_century|datepart)\b|"
                                 r"\bconvert\s*\(\s*n?(var)?char\s*(\(\d+\))?\s*,[^;]*?,\s*\d{1,3}\s*\)", re.I)),
     ("ENV",          re.compile(r"Control\s*Panel.{0,4}International|\b(GetLocaleInfo|SetThreadLocale|sShortDate|iDate)\b", re.I)),
@@ -73,7 +74,11 @@ def has_dateword(text):
     return False
 
 
+DATE_FROM_LITERAL_RE = re.compile(r"""\b(Date|DateTime)\s*\(\s*["'][^"']*["']\s*\)""", re.I)
+
+
 def valid_date_literal(text):
+    text = DATE_FROM_LITERAL_RE.sub("", text)             # Date('1900-01-01') / Date("31.12.2025"): nicht auflisten
     for m in LITERAL_RE.finditer(text):
         n = re.split(r"[-./]", m.group(1))
         n = [int(x) for x in n]
@@ -286,7 +291,7 @@ def main():
                             continue
                         found.append((kind, "", "", KIND_ACTION[kind], rx.search(s).start()))
                 if valid_date_literal(s) and not (in_sql and ISO_LITERAL_RE.search(s) and not re.search(r"[\"']\s*\d{1,2}[./]\d{1,2}[./]\d{4}", s)):
-                    found.append(("DATE_LITERAL", "", "", KIND_ACTION["DATE_LITERAL"], LITERAL_RE.search(s).start()))
+                    found.append(("DATE_LITERAL", "", "", KIND_ACTION["DATE_LITERAL"], LITERAL_RE.search(DATE_FROM_LITERAL_RE.sub("", s)).start()))
                 if (len(POS_RE.findall(s)) >= 2 or (POS_RE.search(s) and has_dateword(s))):
                     found.append(("POS_PARSE", "", "", KIND_ACTION["POS_PARSE"], POS_RE.search(s).start()))
                 seen = set()
