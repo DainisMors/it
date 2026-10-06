@@ -185,6 +185,32 @@ def dw_action(c):
     return "PĀRBAUDĪT"
 
 
+SRD_OBJ_RE = re.compile(r"^\s*(column|compute|text)\s*\(", re.I)
+SRD_KEEP = ["name", "format", "editmask.mask", "editmask.ddcalendar", "editmask.useformat", "expression",
+            "validation", "initial", "dbname"]
+
+
+def snippet(text, pos, width=110):
+    t = re.sub(r"\s+", " ", text)
+    pos = min(pos, max(0, len(t) - 1))
+    a, b = max(0, pos - width), min(len(t), pos + width)
+    return ("…" if a else "") + t[a:b].strip() + ("…" if b < len(t) else "")
+
+
+def short_code(s, pos, is_srd):
+    """DataWindow objektam (column/compute/text) atstāj tikai ar datumu saistītos atribūtus (bez border, color, x, y ...)."""
+    m = SRD_OBJ_RE.match(s) if is_srd else None
+    if m:
+        parts = [m.group(1).lower()]
+        for key in SRD_KEEP:
+            mm = re.search(r"(?<![\w.])" + re.escape(key) + r"\s*=\s*(\"[^\"]*\"|[^\s)]+)", s, re.I)
+            if mm:
+                v = mm.group(1)
+                parts.append(f"{key}={v}")
+        return " ".join(parts)[:300]
+    return snippet(s, pos)
+
+
 def mask_kind(stmt, is_srd, pos):
     if is_srd:
         before = stmt[max(0, pos - 40):pos]
@@ -232,30 +258,31 @@ def main():
                 scope_at[i] = cur
                 if END_RE.match(ln): cur = ""
             for start, idx, stmt in statements(lines):
-                s = stmt.replace("~\"", "\"").replace("~'", "'")
+                s = stmt.replace("~\"", "'").replace("~'", "'")
                 scope = scope_at.get(start, "")
                 inp = "yes" if INPUT_EVENT_RE.search(scope) else ""
-                code = re.sub(r"\s+", " ", stmt).strip()[:400]
-                found = []                                    # (kind, mask, order, action)
+                found = []                                    # (kind, mask, order, action, pos)
                 masks = find_masks(s)
                 if masks:
                     for mask, order, pos in masks:
-                        found.append((mask_kind(s, is_srd, pos), mask, order, ACTION.get(order, "PĀRBAUDĪT")))
+                        found.append((mask_kind(s, is_srd, pos), mask, order, ACTION.get(order, "PĀRBAUDĪT"), pos))
                 for kind, rx in OTHER + (OTHER_LOOSE if a.loose else []):
                     if rx.search(s):
+                        if kind == "MASK_CTRL" and is_srd:
+                            continue                          # DataWindow kolonnas (t.sk. ddcalendar) ir *_dwcolumns.csv
                         if kind == "DATE_PARSE" and is_srd and not re.search(r"expression\s*=|initial|validation", s, re.I):
                             continue
-                        found.append((kind, "", "", KIND_ACTION[kind]))
+                        found.append((kind, "", "", KIND_ACTION[kind], rx.search(s).start()))
                 if valid_date_literal(s):
-                    found.append(("DATE_LITERAL", "", "", KIND_ACTION["DATE_LITERAL"]))
+                    found.append(("DATE_LITERAL", "", "", KIND_ACTION["DATE_LITERAL"], LITERAL_RE.search(s).start()))
                 if (len(POS_RE.findall(s)) >= 2 or (POS_RE.search(s) and has_dateword(s))):
-                    found.append(("POS_PARSE", "", "", KIND_ACTION["POS_PARSE"]))
+                    found.append(("POS_PARSE", "", "", KIND_ACTION["POS_PARSE"], POS_RE.search(s).start()))
                 seen = set()
-                for kind, mask, order, action in found:
+                for kind, mask, order, action, pos in found:
                     key = (kind, mask)
                     if key in seen: continue
                     seen.add(key)
-                    rows.append([kind, action, rel, start + 1, scope, inp, mask, order, code])
+                    rows.append([kind, action, rel, start + 1, scope, inp, mask, order, short_code(s, pos, is_srd)])
 
     prio = {"MAINĪT": 0, "PĀRBAUDĪT": 1, "OK": 2}
     rows.sort(key=lambda r: (prio.get(r[1].split(" ")[0], 3), r[0], r[2], r[3]))
