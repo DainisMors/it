@@ -1,0 +1,5 @@
+release 10;
+table(column=(type=decimal(2) update=yes name=preis dbname="artikel.preis" )
+ column=(type=char(30) name=bez dbname="artikel.bez" )
+ )
+column(band=detail id=1 alignment="1" tabsequence=10 border="5" color="0" x="10" y="4" height="64" width="300" format="#,##0.00" edit.numeric=yes edit.autoselect=yes name=preis )
